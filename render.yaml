@@ -1,0 +1,11 @@
+services:
+  - type: web
+    name: paypal-v6-vanilla-demo
+    env: node
+    buildCommand: yarn install
+    startCommand: yarn start
+    envVars:
+      - key: NODE_VERSION
+        value: 20
+      - key: PAYPAL_ENV
+        value: sandbox

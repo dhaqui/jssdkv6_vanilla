@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+  <title>PayPal JS SDK v6 Vanilla Demo</title>
+
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background: #f5f7fb;
+      margin: 0;
+      padding: 40px;
+      color: #172c4d;
+    }
+
+    .container {
+      max-width: 760px;
+      margin: 0 auto;
+    }
+
+    .card {
+      background: white;
+      border-radius: 16px;
+      padding: 24px;
+      box-shadow: 0 8px 30px rgba(0,0,0,0.08);
+    }
+
+    #status {
+      margin-top: 20px;
+      padding: 16px;
+      background: #f4f7fb;
+      border-radius: 12px;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+  </style>
+
+  <script src="https://www.sandbox.paypal.com/web-sdk/v6/core"></script>
+</head>
+
+<body>
+  <div class="container">
+    <div class="card">
+      <h1>PayPal JS SDK v6 Vanilla Demo</h1>
+
+      <p>
+        This implementation follows the vanilla JS SDK v6 pattern from docs.paypal.ai
+      </p>
+
+      <div id="paypal-button-container"></div>
+
+      <div id="status">Loading...</div>
+    </div>
+  </div>
+
+  <script>
+    const statusEl = document.getElementById("status");
+
+    function setStatus(message) {
+      console.log(message);
+      statusEl.textContent = message;
+    }
+
+    async function init() {
+      try {
+        setStatus("Loading config from server...");
+
+        const configRes = await fetch("/api/config");
+        const config = await configRes.json();
+
+        if (!configRes.ok) {
+          throw new Error(config.error || "Failed to load config");
+        }
+
+        setStatus("Initializing PayPal SDK v6...");
+
+        const sdkInstance = await window.paypal.createInstance({
+          clientId: config.clientId,
+          components: ["paypal-payments"],
+          pageType: "checkout",
+          environment: config.environment
+        });
+
+        const session = sdkInstance.createPayPalOneTimePaymentSession({
+          onApprove: async ({ orderId }) => {
+            setStatus(`Capturing order ${orderId}...`);
+
+            const response = await fetch(`/api/orders/${orderId}/capture`, {
+              method: "POST"
+            });
+
+            const data = await response.json();
+
+            if (!response.ok) {
+              throw new Error(data.error || "Capture failed");
+            }
+
+            setStatus(
+              `Payment captured successfully.\n\nOrder ID: ${orderId}`
+            );
+          },
+
+          onCancel: () => {
+            setStatus("Payment cancelled.");
+          },
+
+          onError: (error) => {
+            console.error(error);
+            setStatus("Payment error. Check console and Render logs.");
+          }
+        });
+
+        await session.start({
+          presentationMode: "auto",
+          createOrder: async () => {
+            setStatus("Creating order on server...");
+
+            const response = await fetch("/api/orders", {
+              method: "POST"
+            });
+
+            const data = await response.json();
+
+            if (!response.ok) {
+              throw new Error(data.error || "Order creation failed");
+            }
+
+            setStatus(`Order created: ${data.orderId}`);
+
+            return {
+              orderId: data.orderId
+            };
+          }
+        });
+
+        setStatus("PayPal SDK ready.");
+      } catch (error) {
+        console.error(error);
+        setStatus(error.message || "Initialization failed");
+      }
+    }
+
+    init();
+  </script>
+</body>
+</html>
