@@ -1,20 +1,23 @@
-# PayPal JS SDK v6 Vanilla JS Demo
+# PayPal JS SDK v6 Vanilla Demo
 
-This project follows the vanilla JS SDK v6 approach from:
+This version fixes the `no order ID provided` error.
 
-https://docs.paypal.ai/developer/how-to/sdk/js/v6/configuration
+The important v6 detail is:
 
-Features:
+```js
+await paymentSession.start(
+  { presentationMode: "auto" },
+  createOrder()
+);
+```
 
-- Vanilla JS implementation
-- Direct `window.paypal.createInstance()`
-- JS SDK v6 loaded from CDN
-- Express server for Orders API
-- Server-side order creation
-- Server-side capture
-- Render deployment ready
+`createOrder()` must resolve to:
 
-## Render Settings
+```js
+{ orderId: "PAYPAL_ORDER_ID" }
+```
+
+## Render
 
 Build Command:
 

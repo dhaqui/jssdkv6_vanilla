@@ -1,5 +1,5 @@
 {
-  "name": "paypal-v6-vanilla-demo",
+  "name": "paypal-v6-vanilla-demo-fixed-orderid",
   "private": true,
   "version": "1.0.0",
   "type": "module",

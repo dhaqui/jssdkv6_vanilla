@@ -25,7 +25,9 @@ function getCredentials() {
       : process.env.PAYPAL_SANDBOX_CLIENT_SECRET;
 
   if (!clientId || !clientSecret) {
-    throw new Error("Missing PayPal credentials");
+    throw new Error(
+      "Missing PayPal credentials. Set PAYPAL_SANDBOX_CLIENT_ID and PAYPAL_SANDBOX_CLIENT_SECRET."
+    );
   }
 
   return { clientId, clientSecret };
@@ -33,7 +35,6 @@ function getCredentials() {
 
 async function getAccessToken() {
   const { clientId, clientSecret } = getCredentials();
-
   const auth = Buffer.from(`${clientId}:${clientSecret}`).toString("base64");
 
   const response = await fetch(`${PAYPAL_BASE_URL}/v1/oauth2/token`, {
@@ -48,8 +49,8 @@ async function getAccessToken() {
   const data = await response.json();
 
   if (!response.ok) {
-    console.error(data);
-    throw new Error("Failed to get access token");
+    console.error("PayPal OAuth error:", data);
+    throw new Error(data.error_description || data.error || "Failed to get PayPal access token");
   }
 
   return data.access_token;
@@ -70,8 +71,8 @@ async function paypalRequest(pathname, options = {}) {
   const data = await response.json().catch(() => ({}));
 
   if (!response.ok) {
-    console.error(data);
-    throw new Error(data.message || "PayPal API request failed");
+    console.error("PayPal API error:", data);
+    throw new Error(data.message || data.name || "PayPal API request failed");
   }
 
   return data;
@@ -83,12 +84,14 @@ app.get("/api/config", (req, res) => {
 
     res.json({
       clientId,
-      environment: PAYPAL_ENV
+      environment: PAYPAL_ENV,
+      sdkUrl:
+        PAYPAL_ENV === "live"
+          ? "https://www.paypal.com/web-sdk/v6/core"
+          : "https://www.sandbox.paypal.com/web-sdk/v6/core"
     });
   } catch (error) {
-    res.status(500).json({
-      error: error.message
-    });
+    res.status(500).json({ error: error.message });
   }
 });
 
@@ -111,32 +114,26 @@ app.post("/api/orders", async (req, res) => {
     });
 
     res.json({
+      id: order.id,
       orderId: order.id,
       order
     });
   } catch (error) {
-    res.status(500).json({
-      error: error.message
-    });
+    res.status(500).json({ error: error.message });
   }
 });
 
 app.post("/api/orders/:orderId/capture", async (req, res) => {
   try {
-    const capture = await paypalRequest(
-      `/v2/checkout/orders/${req.params.orderId}/capture`,
-      {
-        method: "POST"
-      }
-    );
+    const { orderId } = req.params;
 
-    res.json({
-      capture
+    const capture = await paypalRequest(`/v2/checkout/orders/${orderId}/capture`, {
+      method: "POST"
     });
+
+    res.json({ capture });
   } catch (error) {
-    res.status(500).json({
-      error: error.message
-    });
+    res.status(500).json({ error: error.message });
   }
 });
 
@@ -150,4 +147,5 @@ const port = process.env.PORT || 3000;
 
 app.listen(port, () => {
   console.log(`Server running on ${port}`);
+  console.log(`PayPal environment: ${PAYPAL_ENV}`);
 });

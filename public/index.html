@@ -3,10 +3,9 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-
   <title>PayPal JS SDK v6 Vanilla Demo</title>
-
   <style>
+    * { box-sizing: border-box; }
     body {
       font-family: Arial, sans-serif;
       background: #f5f7fb;
@@ -14,19 +13,20 @@
       padding: 40px;
       color: #172c4d;
     }
-
-    .container {
-      max-width: 760px;
-      margin: 0 auto;
-    }
-
+    .container { max-width: 760px; margin: 0 auto; }
     .card {
       background: white;
       border-radius: 16px;
       padding: 24px;
       box-shadow: 0 8px 30px rgba(0,0,0,0.08);
     }
-
+    .amount {
+      font-size: 18px;
+      margin: 16px 0 24px;
+    }
+    paypal-button[hidden] {
+      display: none;
+    }
     #status {
       margin-top: 20px;
       padding: 16px;
@@ -34,22 +34,19 @@
       border-radius: 12px;
       white-space: pre-wrap;
       word-break: break-word;
+      line-height: 1.5;
     }
   </style>
-
-  <script src="https://www.sandbox.paypal.com/web-sdk/v6/core"></script>
 </head>
 
 <body>
   <div class="container">
     <div class="card">
       <h1>PayPal JS SDK v6 Vanilla Demo</h1>
+      <p>docs.paypal.ai の vanilla JS SDK v6 パターンに合わせた実装です。</p>
+      <p class="amount">Amount: <strong>$10.00 USD</strong></p>
 
-      <p>
-        This implementation follows the vanilla JS SDK v6 pattern from docs.paypal.ai
-      </p>
-
-      <div id="paypal-button-container"></div>
+      <paypal-button hidden></paypal-button>
 
       <div id="status">Loading...</div>
     </div>
@@ -63,79 +60,127 @@
       statusEl.textContent = message;
     }
 
+    function loadScript(src) {
+      return new Promise((resolve, reject) => {
+        const script = document.createElement("script");
+        script.src = src;
+        script.onload = resolve;
+        script.onerror = () => reject(new Error(`Failed to load ${src}`));
+        document.head.appendChild(script);
+      });
+    }
+
+    async function createOrder() {
+      setStatus("Creating order on server...");
+
+      const response = await fetch("/api/orders", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        }
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || "Order creation failed");
+      }
+
+      const orderId = data.id || data.orderId;
+
+      if (!orderId) {
+        throw new Error("Server did not return an order ID");
+      }
+
+      setStatus(`Order created: ${orderId}`);
+
+      // JS SDK v6 requires this exact shape.
+      return { orderId };
+    }
+
+    async function captureOrder(orderId) {
+      setStatus(`Capturing order ${orderId}...`);
+
+      const response = await fetch(`/api/orders/${orderId}/capture`, {
+        method: "POST"
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || "Capture failed");
+      }
+
+      return data;
+    }
+
     async function init() {
       try {
         setStatus("Loading config from server...");
 
-        const configRes = await fetch("/api/config");
-        const config = await configRes.json();
+        const configResponse = await fetch("/api/config");
+        const config = await configResponse.json();
 
-        if (!configRes.ok) {
+        if (!configResponse.ok) {
           throw new Error(config.error || "Failed to load config");
         }
+
+        setStatus("Loading PayPal JS SDK v6...");
+        await loadScript(config.sdkUrl);
 
         setStatus("Initializing PayPal SDK v6...");
 
         const sdkInstance = await window.paypal.createInstance({
           clientId: config.clientId,
           components: ["paypal-payments"],
-          pageType: "checkout",
-          environment: config.environment
+          pageType: "checkout"
         });
 
-        const session = sdkInstance.createPayPalOneTimePaymentSession({
-          onApprove: async ({ orderId }) => {
-            setStatus(`Capturing order ${orderId}...`);
+        const paymentSession = sdkInstance.createPayPalOneTimePaymentSession({
+          async onApprove(data) {
+            console.log("onApprove:", data);
+            const orderId = data.orderId;
 
-            const response = await fetch(`/api/orders/${orderId}/capture`, {
-              method: "POST"
-            });
-
-            const data = await response.json();
-
-            if (!response.ok) {
-              throw new Error(data.error || "Capture failed");
+            if (!orderId) {
+              throw new Error("PayPal approval did not include an orderId");
             }
 
-            setStatus(
-              `Payment captured successfully.\n\nOrder ID: ${orderId}`
-            );
+            const result = await captureOrder(orderId);
+            console.log("capture result:", result);
+
+            setStatus(`Payment captured successfully.\n\nOrder ID: ${orderId}`);
           },
 
-          onCancel: () => {
+          onCancel(data) {
+            console.log("onCancel:", data);
             setStatus("Payment cancelled.");
           },
 
-          onError: (error) => {
-            console.error(error);
-            setStatus("Payment error. Check console and Render logs.");
+          onError(error) {
+            console.error("onError:", error);
+            setStatus("Payment error. Check browser console and Render logs.");
           }
         });
 
-        await session.start({
-          presentationMode: "auto",
-          createOrder: async () => {
-            setStatus("Creating order on server...");
+        const paypalButton = document.querySelector("paypal-button");
+        paypalButton.removeAttribute("hidden");
 
-            const response = await fetch("/api/orders", {
-              method: "POST"
-            });
-
-            const data = await response.json();
-
-            if (!response.ok) {
-              throw new Error(data.error || "Order creation failed");
-            }
-
-            setStatus(`Order created: ${data.orderId}`);
-
-            return {
-              orderId: data.orderId
-            };
+        paypalButton.addEventListener("click", async () => {
+          try {
+            // Important:
+            // v6 expects createOrder() as the second argument to start().
+            // The promise must resolve to { orderId: "..." }.
+            await paymentSession.start(
+              { presentationMode: "auto" },
+              createOrder()
+            );
+          } catch (error) {
+            console.error("paymentSession.start error:", error);
+            setStatus(error.message || "Payment start failed");
           }
         });
 
-        setStatus("PayPal SDK ready.");
+        setStatus("PayPal SDK ready. Click the PayPal button.");
       } catch (error) {
         console.error(error);
         setStatus(error.message || "Initialization failed");
